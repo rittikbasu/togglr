@@ -1,13 +1,18 @@
 {
   "manifest_version": 3,
   "name": "Togglr",
-  "version": "0.2",
+  "version": "0.3",
   "description": "Toggle ChatGPT modes with shortcuts",
-  "permissions": ["activeTab", "scripting", "storage", "tabs"],
-  "host_permissions": ["https://chatgpt.com/*"],
-  "background": {
-    "service_worker": "background.js"
+  "permissions": ["storage", "tabs"],
+  "icons": {
+    "16": "icon.png",
+    "32": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png",
+    "256": "icon.png",
+    "512": "icon.png"
   },
+
   "content_scripts": [
     {
       "matches": ["https://chatgpt.com/*"],
@@ -17,22 +22,10 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "ChatGPT Mode Shortcuts"
-  },
-  "commands": {
-    "toggle_think_longer": {
-      "suggested_key": {
-        "default": "Alt+Shift+T",
-        "mac": "Ctrl+Shift+T"
-      },
-      "description": "Toggle / enable Think longer (open + select / remove pill)"
-    },
-    "run_web_search": {
-      "suggested_key": {
-        "default": "Alt+Shift+W",
-        "mac": "Ctrl+Shift+W"
-      },
-      "description": "Open More → Web search"
+    "default_title": "ChatGPT Mode Shortcuts",
+    "default_icon": {
+      "16": "icon.png",
+      "32": "icon.png"
     }
   }
 }
