@@ -1,0 +1,24 @@
+/* popup.css */
+:root {
+    --bg: #fff;
+    --fg: #111;
+    --muted: #666;
+    --accent: #2563eb;
+  }
+  html,body{margin:0;padding:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; background:var(--bg); color:var(--fg); width:360px;}
+  .wrap{padding:12px 14px;}
+  h2{margin:0 0 8px;font-size:15px}
+  .modes{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
+  .mode{display:flex;justify-content:space-between;align-items:center;padding:8px;border-radius:8px;background:#f7f7fb}
+  .mode-title{font-weight:600}
+  .mode-controls{display:flex;gap:8px;align-items:center}
+  .run-btn{padding:6px 10px;border-radius:6px;border:1px solid #ddd;background:white;cursor:pointer}
+  .status{font-size:12px;color:var(--muted)}
+  .shortcut-config label{display:block;font-size:13px;margin-bottom:6px}
+  .shortcut-capture{display:flex;gap:6px;align-items:center}
+  #shortcutInput{flex:1;padding:8px;border-radius:6px;border:1px solid #ddd}
+  #clearShortcut{padding:6px 8px;border-radius:6px;border:1px solid #ddd;background:#fff;cursor:pointer}
+  .hint{display:block;color:var(--muted);font-size:12px;margin-top:6px}
+  a#openShortcuts{color:var(--accent);text-decoration:none;font-size:13px}
+  #closeBtn{padding:6px 10px;border-radius:6px;border:none;background:#eee;cursor:pointer}
+  
