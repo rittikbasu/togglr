@@ -48,15 +48,18 @@
     <hr/>
 
     <div class="shortcut-config">
-      <label>In-page shortcut (press to capture)</label>
+      <label>In-page shortcuts (press to capture)</label>
+      <div class="shortcut-capture" style="margin-bottom:6px;">
+        <span style="display:inline-block;width:110px;">Think longer</span>
+        <input id="thinkShortcutInput" placeholder="Ctrl+Shift+T / Alt+Shift+T" readonly />
+        <button id="clearThinkShortcut">Clear</button>
+      </div>
       <div class="shortcut-capture">
-        <input id="shortcutInput" placeholder="Press keys (e.g. Alt+Shift+T)" readonly />
-        <button id="clearShortcut">Clear</button>
+        <span style="display:inline-block;width:110px;">Web search</span>
+        <input id="webShortcutInput" placeholder="Ctrl+Shift+W / Alt+Shift+W" readonly />
+        <button id="clearWebShortcut">Clear</button>
       </div>
-      <small class="hint">Use this to set a shortcut that works inside chatgpt.com tabs. For OS-level shortcut, click the link below.</small>
-      <div style="margin-top: 8px;">
-        <a id="openShortcuts" href="#" target="_blank">Set OS shortcut in Chrome</a>
-      </div>
+      <small class="hint">These shortcuts work only on chatgpt.com and override keys while typing.</small>
     </div>
 
     <div style="margin-top:10px; text-align:right">

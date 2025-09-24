@@ -45,9 +45,11 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // Shortcut capture UI
-  const input = document.getElementById("shortcutInput");
-  const clearBtn = document.getElementById("clearShortcut");
+  // Shortcut capture UI (two shortcuts)
+  const thinkInput = document.getElementById("thinkShortcutInput");
+  const webInput = document.getElementById("webShortcutInput");
+  const clearThink = document.getElementById("clearThinkShortcut");
+  const clearWeb = document.getElementById("clearWebShortcut");
 
   function formatShortcut(obj) {
     if (!obj) return "";
@@ -70,40 +72,41 @@ document.addEventListener("DOMContentLoaded", () => {
     return k.length === 1 ? k.toUpperCase() : k;
   }
 
-  // load saved inpageShortcut
-  chrome.storage.sync.get(["inpageShortcut"], (res) => {
-    if (res && res.inpageShortcut) {
-      input.value = formatShortcut(res.inpageShortcut);
-    } else {
-      // show sensible default based on platform
-      const isMac = navigator.platform.toLowerCase().includes("mac");
-      const def = isMac
-        ? { ctrl: true, alt: false, shift: true, meta: false, key: "t" }
-        : { ctrl: false, alt: true, shift: true, meta: false, key: "t" };
-      input.value = formatShortcut(def);
-    }
+  // load saved shortcuts
+  chrome.storage.sync.get(["thinkShortcut", "webShortcut"], (res) => {
+    const isMac = navigator.platform.toLowerCase().includes("mac");
+    const defThink = isMac
+      ? { ctrl: true, alt: false, shift: true, meta: false, key: "t" }
+      : { ctrl: false, alt: true, shift: true, meta: false, key: "t" };
+    const defWeb = isMac
+      ? { ctrl: true, alt: false, shift: true, meta: false, key: "w" }
+      : { ctrl: false, alt: true, shift: true, meta: false, key: "w" };
+    thinkInput.value = formatShortcut(res.thinkShortcut || defThink);
+    webInput.value = formatShortcut(res.webShortcut || defWeb);
   });
 
   // capture key sequence when user focuses input and presses keys
   let capturing = false;
-  input.addEventListener("focus", () => {
+  const startCapture = (which) => {
+    const input = which === "think" ? thinkInput : webInput;
     input.value = "Press keys...";
-    capturing = true;
-  });
+    capturing = which; // "think" | "web"
+  };
+  thinkInput.addEventListener("focus", () => startCapture("think"));
+  webInput.addEventListener("focus", () => startCapture("web"));
 
-  input.addEventListener("blur", () => {
+  const stopCapture = () =>
     setTimeout(() => {
       capturing = false;
     }, 50);
-  });
+  thinkInput.addEventListener("blur", stopCapture);
+  webInput.addEventListener("blur", stopCapture);
 
   // global capture for popup window while focused
   window.addEventListener("keydown", (e) => {
-    if (
-      !document.activeElement ||
-      document.activeElement.id !== "shortcutInput"
-    )
-      return;
+    if (!capturing) return;
+    const activeEl = document.activeElement;
+    if (!activeEl || (activeEl !== thinkInput && activeEl !== webInput)) return;
     e.preventDefault();
     e.stopPropagation();
     const obj = {
@@ -123,24 +126,26 @@ document.addEventListener("DOMContentLoaded", () => {
       input.value = formatShortcut(obj);
       return;
     }
-    // normalize printable key
-    chrome.storage.sync.set({ inpageShortcut: obj }, () => {
-      input.value = formatShortcut(obj);
+    const storageKey = capturing === "think" ? "thinkShortcut" : "webShortcut";
+    chrome.storage.sync.set({ [storageKey]: obj }, () => {
+      (capturing === "think" ? thinkInput : webInput).value =
+        formatShortcut(obj);
     });
   });
 
-  clearBtn.addEventListener("click", () => {
-    chrome.storage.sync.remove(["inpageShortcut"], () => {
-      input.value = "";
+  clearThink.addEventListener("click", () => {
+    chrome.storage.sync.remove(["thinkShortcut"], () => {
+      thinkInput.value = "";
+    });
+  });
+  clearWeb.addEventListener("click", () => {
+    chrome.storage.sync.remove(["webShortcut"], () => {
+      webInput.value = "";
     });
   });
 
   // open Chrome's extension shortcuts page to set OS-level shortcut
-  document.getElementById("openShortcuts").addEventListener("click", (e) => {
-    e.preventDefault();
-    // open the shortcuts page
-    chrome.tabs.create({ url: "chrome://extensions/shortcuts" });
-  });
+  // removed OS-level shortcut link (not needed for in-page only)
 
   document.getElementById("closeBtn").addEventListener("click", () => {
     window.close();

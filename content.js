@@ -240,9 +240,23 @@
   async function toggleThinkLonger() {
     try {
       // 1) if pill exists, click it (to remove)
-      const pill = document.querySelector(
-        'button.__composer-pill, button[aria-label*="Think, click to remove"], button[aria-label^="Think,"]'
-      );
+      // strictly target Think pill, not other pills like Search
+      const pill =
+        [
+          ...document.querySelectorAll(
+            'button.__composer-pill, button[aria-label*="Think, click to remove"], button[aria-label^="Think,"]'
+          ),
+        ].find((el) => {
+          try {
+            const aria =
+              (el.getAttribute && (el.getAttribute("aria-label") || "")) || "";
+            if (aria.toLowerCase().startsWith("think")) return true;
+            const label = (el.textContent || "").trim().toLowerCase();
+            return label.startsWith("think");
+          } catch (e) {
+            return false;
+          }
+        }) || null;
       if (pill) {
         await clickCenter(pill);
         await wait(140);
@@ -273,9 +287,18 @@
           '[role="menuitemradio"], [role="menuitem"], [role="menuitemcheckbox"]'
         ),
       ];
-      const target = radios.find((r) =>
+      let target = radios.find((r) =>
         (r.textContent || "").trim().toLowerCase().includes("think longer")
       );
+      // If disabled, report and bail without changing other modes
+      if (
+        target &&
+        (target.getAttribute("aria-disabled") === "true" ||
+          target.hasAttribute("data-disabled"))
+      ) {
+        toast("Think longer is unavailable right now", false);
+        return false;
+      }
       if (!target) {
         toast("Think longer item not found", false);
         return false;
@@ -434,6 +457,14 @@
         (el.textContent || "").trim().toLowerCase().includes("web search")
       );
 
+      if (
+        option &&
+        (option.getAttribute("aria-disabled") === "true" ||
+          option.hasAttribute("data-disabled"))
+      ) {
+        toast("Web search is unavailable right now", false);
+        return false;
+      }
       if (!option) {
         toast('"Web search" item not found', false);
         return false;
@@ -544,8 +575,9 @@
   window.__toggleWebSearch = toggleWebSearch;
 
   // --- in-page shortcut handling (configurable by popup)
-  // default mapping: mac Ctrl+Shift+T; else Alt+Shift+T
-  let currentShortcut = null; // stored as normalized object {ctrl,alt,shift,meta,key}
+  // Two shortcuts captured at capture phase so they work while typing
+  let thinkShortcut = null; // {ctrl,alt,shift,meta,key}
+  let webShortcut = null; // {ctrl,alt,shift,meta,key}
 
   function normalizeShortcutObj(obj) {
     if (!obj) return null;
@@ -567,43 +599,59 @@
     const k = (e.key || "").toLowerCase();
     return k === shortcut.key;
   }
-
-  // load stored shortcut from chrome.storage (if user customized)
-  function loadStoredShortcut() {
-    chrome.storage.sync.get(["inpageShortcut"], (res) => {
-      if (res && res.inpageShortcut) {
-        currentShortcut = normalizeShortcutObj(res.inpageShortcut);
-      } else {
-        // choose sensible defaults based on platform
-        const isMac = navigator.platform.toLowerCase().includes("mac");
-        currentShortcut = isMac
-          ? { ctrl: true, alt: false, shift: true, meta: false, key: "t" }
-          : { ctrl: false, alt: true, shift: true, meta: false, key: "t" };
-      }
+  // load stored shortcuts from chrome.storage (or defaults)
+  function loadStoredShortcuts() {
+    chrome.storage.sync.get(["thinkShortcut", "webShortcut"], (res) => {
+      const isMac = navigator.platform.toLowerCase().includes("mac");
+      thinkShortcut = normalizeShortcutObj(
+        res.thinkShortcut ||
+          (isMac
+            ? { ctrl: true, alt: false, shift: true, meta: false, key: "t" }
+            : { ctrl: false, alt: true, shift: true, meta: false, key: "t" })
+      );
+      webShortcut = normalizeShortcutObj(
+        res.webShortcut ||
+          (isMac
+            ? { ctrl: true, alt: false, shift: true, meta: false, key: "w" }
+            : { ctrl: false, alt: true, shift: true, meta: false, key: "w" })
+      );
     });
   }
-  loadStoredShortcut();
+  loadStoredShortcuts();
 
   // listen for changes so popup updates are applied live
   chrome.storage.onChanged.addListener((changes) => {
-    if (changes.inpageShortcut) {
-      currentShortcut = normalizeShortcutObj(changes.inpageShortcut.newValue);
+    if (changes.thinkShortcut) {
+      thinkShortcut = normalizeShortcutObj(changes.thinkShortcut.newValue);
+    }
+    if (changes.webShortcut) {
+      webShortcut = normalizeShortcutObj(changes.webShortcut.newValue);
     }
   });
 
-  // keydown listener for in-page shortcut
-  let lastHit = 0;
-  document.addEventListener("keydown", (e) => {
-    try {
-      const now = Date.now();
-      if (now - lastHit < 500) return;
-      if (isTypingContext(e.target)) return;
-      if (shortcutMatchesEvent(currentShortcut, e)) {
-        lastHit = now;
-        e.preventDefault();
-        // run think longer by default for now
-        toggleThinkLonger();
-      }
-    } catch (err) {}
-  });
+  // capture-phase keydown so it works while typing
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      try {
+        const k = (e.key || "").toLowerCase();
+        if (!k) return;
+        if (k === "shift" || k === "control" || k === "alt" || k === "meta")
+          return;
+        if (shortcutMatchesEvent(thinkShortcut, e)) {
+          e.preventDefault();
+          e.stopPropagation();
+          toggleThinkLonger();
+          return;
+        }
+        if (shortcutMatchesEvent(webShortcut, e)) {
+          e.preventDefault();
+          e.stopPropagation();
+          toggleWebSearch();
+          return;
+        }
+      } catch (err) {}
+    },
+    { capture: true }
+  );
 })();
