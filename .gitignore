@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+
+# Build artifacts
+build/
+dist/
+out/
+coverage/
+*.crx
+*.zip
+
+# Env files
+.env
+.env.*
