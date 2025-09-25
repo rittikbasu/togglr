@@ -1,6 +1,10 @@
-## Togglr
+# Togglr
 
 a tiny chrome extension that lets you toggle modes like think longer, web search, deep research, and create image with keyboard shortcuts.
+
+<div align="center">
+    <img src="demo.gif" alt="demo gif" width="720" style="max-width:100%;height:auto; />
+</div>
 
 ### usage
 
