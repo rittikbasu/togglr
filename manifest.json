@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Togglr",
-  "version": "0.3",
-  "description": "Toggle ChatGPT modes with shortcuts",
+  "version": "1.0",
+  "description": "Toggle ChatGPT modes with shortcuts.",
   "permissions": ["storage", "tabs"],
   "icons": {
     "16": "icon.png",

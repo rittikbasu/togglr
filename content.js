@@ -1,46 +1,34 @@
-// content.js
 (function () {
   "use strict";
 
-  // small toast
-  function toast(msg, ok = true, ms = 1400) {
-    try {
-      let t = document.getElementById("__think_ext_toast");
-      if (!t) {
-        t = document.createElement("div");
-        t.id = "__think_ext_toast";
-        Object.assign(t.style, {
-          position: "fixed",
-          right: "18px",
-          bottom: "18px",
-          zIndex: 2147483647,
-          padding: "10px 14px",
-          borderRadius: "10px",
-          fontFamily:
-            'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial',
-          fontSize: "13px",
-          boxShadow: "0 6px 20px rgba(0,0,0,0.3)",
-          transition: "opacity .22s",
-          opacity: "0",
-        });
-        document.body.appendChild(t);
-      }
-      t.style.background = ok
-        ? "linear-gradient(90deg,#22c55e,#16a34a)"
-        : "linear-gradient(90deg,#ef4444,#dc2626)";
-      t.style.color = "white";
-      t.textContent = msg;
-      t.style.opacity = "1";
-      clearTimeout(t.__hide_timer);
-      t.__hide_timer = setTimeout(() => {
-        t.style.opacity = "0";
-      }, ms);
-    } catch (e) {
-      /* ignore */
-    }
-  }
+  const SELECTORS = {
+    plusButton:
+      'button[data-testid="composer-plus-btn"], button[aria-label="Add files and more"]',
+    anyOpenMenu:
+      '[role="menu"][data-state="open"], [data-radix-menu-content][data-state="open"], [role="menu"]',
+    pills: "button.__composer-pill, button[aria-label]",
+    menuItems:
+      '[role="menuitemradio"], [role="menuitem"], [role="menuitemcheckbox"]',
+  };
 
-  // dispatch helper
+  const LABELS = {
+    more: "more",
+    thinkLonger: "think longer",
+    webSearch: /\bweb\b.*\bsearch\b|\bsearch\b.*\bweb\b/,
+    pillThinkStarts: "think",
+    pillResearch: "research",
+    pillImage: "image",
+    pillSearchWord: /\bsearch\b/,
+  };
+
+  const TIMING = {
+    pollOpenMs: 240,
+    pollStepMs: 20,
+    clickWaitMs: 60,
+    checkWaitMs: 140,
+    escapeWaitMs: 100,
+  };
+
   function dispatch(el, type, opts = {}) {
     try {
       let ev;
@@ -76,20 +64,35 @@
 
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  // --- Shared helpers ---
-  function isTypingContext(target) {
-    try {
-      if (!target) return false;
-      const tag = (target.tagName || "").toLowerCase();
-      if (tag === "input" || tag === "textarea") return true;
-      const editable =
-        (target.closest &&
-          target.closest('[contenteditable=""], [contenteditable="true"]')) ||
-        null;
-      return !!editable;
-    } catch (e) {
-      return false;
+  async function pollUntil(predicate, timeoutMs = 400, stepMs = 20) {
+    const start = performance.now();
+    while (performance.now() - start < timeoutMs) {
+      try {
+        if (predicate()) return true;
+      } catch (e) {}
+      await wait(stepMs);
     }
+    return false;
+  }
+
+  function safeLower(val) {
+    try {
+      return String(val || "").toLowerCase();
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function findPill(predicate) {
+    const pills = document.querySelectorAll(
+      "button.__composer-pill, button[aria-label]"
+    );
+    for (const el of pills) {
+      const aria = safeLower(el.getAttribute && el.getAttribute("aria-label"));
+      const label = safeLower((el.textContent || "").trim());
+      if (predicate(aria, label, el)) return el;
+    }
+    return null;
   }
 
   async function clickCenter(el) {
@@ -128,10 +131,36 @@
     return true;
   }
 
+  function isDisabledMenuItem(el) {
+    try {
+      return (
+        (el &&
+          el.getAttribute &&
+          el.getAttribute("aria-disabled") === "true") ||
+        (el && el.hasAttribute && el.hasAttribute("data-disabled"))
+      );
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async function clickElementRobust(el) {
+    if (!el) return false;
+    await clickCenter(el);
+    try {
+      const r = el.getBoundingClientRect();
+      const cx = Math.round(r.left + r.width / 2);
+      const cy = Math.round(r.top + r.height / 2);
+      ["pointerdown", "mousedown", "pointerup", "mouseup", "click"].forEach(
+        (t) => dispatch(el, t, { clientX: cx, clientY: cy })
+      );
+      el.click && el.click();
+    } catch (e) {}
+    return true;
+  }
+
   function getPlusButton() {
-    return document.querySelector(
-      'button[data-testid="composer-plus-btn"], button[aria-label="Add files and more"]'
-    );
+    return document.querySelector(SELECTORS.plusButton);
   }
 
   function isPlusMenuOpen(plus) {
@@ -148,12 +177,7 @@
         plus.getAttribute("data-state") === "open"
       )
         return true;
-      if (
-        document.querySelector(
-          '[role="menu"][data-state="open"], [data-radix-menu-content][data-state="open"], [data-state="open"]'
-        )
-      )
-        return true;
+      if (document.querySelector(SELECTORS.anyOpenMenu)) return true;
     } catch (e) {}
     return false;
   }
@@ -161,43 +185,48 @@
   async function openPlusMenu() {
     const plus = getPlusButton();
     if (!plus) return false;
-    let opened = isPlusMenuOpen(plus);
-    for (let i = 0; i < 6 && !opened; i++) {
-      [
-        "pointerover",
-        "pointerenter",
-        "mouseover",
-        "mousemove",
-        "pointerdown",
-        "mousedown",
-        "pointerup",
-        "mouseup",
-        "click",
-      ].forEach((t) => dispatch(plus, t));
-      try {
-        plus.click();
-      } catch (e) {}
-      plus.focus && plus.focus();
-      await wait(120 + i * 60);
-      opened = isPlusMenuOpen(plus);
-    }
-    if (!opened) {
-      const seen = await new Promise((res) => {
-        const obs = new MutationObserver(() => {
-          if (isPlusMenuOpen(plus)) {
-            obs.disconnect();
-            res(true);
-          }
-        });
-        obs.observe(document, { childList: true, subtree: true });
-        setTimeout(() => {
+    if (isPlusMenuOpen(plus)) return true;
+
+    try {
+      plus.click();
+    } catch (e) {}
+    plus.focus && plus.focus();
+    await pollUntil(
+      () => isPlusMenuOpen(plus),
+      TIMING.pollOpenMs,
+      TIMING.pollStepMs
+    );
+    if (isPlusMenuOpen(plus)) return true;
+
+    try {
+      plus.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true })
+      );
+      plus.dispatchEvent(
+        new KeyboardEvent("keyup", { key: "Enter", bubbles: true })
+      );
+    } catch (e) {}
+    await pollUntil(
+      () => isPlusMenuOpen(plus),
+      TIMING.pollOpenMs,
+      TIMING.pollStepMs
+    );
+    if (isPlusMenuOpen(plus)) return true;
+
+    const seen = await new Promise((res) => {
+      const obs = new MutationObserver(() => {
+        if (isPlusMenuOpen(plus)) {
           obs.disconnect();
-          res(false);
-        }, 1200);
+          res(true);
+        }
       });
-      opened = seen || isPlusMenuOpen(plus);
-    }
-    return opened;
+      obs.observe(document, { childList: true, subtree: true });
+      setTimeout(() => {
+        obs.disconnect();
+        res(false);
+      }, 300);
+    });
+    return seen || isPlusMenuOpen(plus);
   }
 
   function getOpenMenuRoot() {
@@ -210,11 +239,12 @@
         if (el) return el;
       }
     } catch (e) {}
-    return (
-      document.querySelector(
-        '[role="menu"][data-state="open"], [data-radix-menu-content][data-state="open"], [role="menu"]'
-      ) || null
-    );
+    return document.querySelector(SELECTORS.anyOpenMenu) || null;
+  }
+
+  function getMenuItems() {
+    const root = getOpenMenuRoot() || document;
+    return root.querySelectorAll(SELECTORS.menuItems);
   }
 
   function findVisibleMenuContaining(textLower) {
@@ -236,87 +266,107 @@
     });
   }
 
-  // --- main Toggle logic (open + select OR click pill if present)
+  async function selectTopMenuItemByText(textLower) {
+    const opened = await openPlusMenu();
+    if (!opened) return { ok: false, reason: "menu_open_failed" };
+    const radios = [...document.querySelectorAll(SELECTORS.menuItems)];
+    const target = radios.find((r) =>
+      (r.textContent || "").trim().toLowerCase().includes(textLower)
+    );
+    if (!target) return { ok: false, reason: "item_not_found" };
+    if (isDisabledMenuItem(target)) return { ok: false, reason: "disabled" };
+    await clickElementRobust(target);
+    await wait(80);
+    await closeAnyOpenDialog(1);
+    return { ok: true };
+  }
+
+  function pressEscape(times = 1) {
+    for (let i = 0; i < times; i++) {
+      try {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
+        );
+        document.dispatchEvent(
+          new KeyboardEvent("keyup", { key: "Escape", bubbles: true })
+        );
+      } catch (e) {}
+    }
+  }
+
+  async function closeAnyOpenDialog(attempts = 3) {
+    for (let i = 0; i < attempts; i++) {
+      // try Esc first
+      pressEscape(1);
+      await wait(100);
+      const dialog =
+        document.querySelector(
+          '[role="dialog"][data-state="open"], [role="dialog"][aria-hidden="false"], [role="dialog"][open], [aria-modal="true"]'
+        ) || null;
+      if (!dialog) return true;
+      // try clicking a close button
+      const closeBtn =
+        (dialog.querySelector &&
+          dialog.querySelector(
+            'button[aria-label="Close"], [aria-label="Close"]'
+          )) ||
+        null;
+      if (closeBtn) {
+        try {
+          await clickCenter(closeBtn);
+        } catch (e) {}
+        await wait(120);
+        continue;
+      }
+    }
+    return false;
+  }
+
   async function toggleThinkLonger() {
     try {
-      // 1) if pill exists, click it (to remove)
-      // strictly target Think pill, not other pills like Search
-      const pill =
-        [
-          ...document.querySelectorAll(
-            'button.__composer-pill, button[aria-label*="Think, click to remove"], button[aria-label^="Think,"]'
-          ),
-        ].find((el) => {
-          try {
-            const aria =
-              (el.getAttribute && (el.getAttribute("aria-label") || "")) || "";
-            if (aria.toLowerCase().startsWith("think")) return true;
-            const label = (el.textContent || "").trim().toLowerCase();
-            return label.startsWith("think");
-          } catch (e) {
-            return false;
-          }
-        }) || null;
+      const pill = findPill(
+        (aria, label) =>
+          aria.startsWith(LABELS.pillThinkStarts) ||
+          label.startsWith(LABELS.pillThinkStarts)
+      );
       if (pill) {
         await clickCenter(pill);
         await wait(140);
-        toast("Think removed", true);
         return true;
       }
 
-      // 2) open + menu robustly and select Think longer
       const plus = getPlusButton();
       if (!plus) {
-        toast("Plus button not found", false);
         return false;
       }
 
       const opened = await openPlusMenu();
       if (!opened) {
-        toast(
-          "Menu did not open — try clicking + manually then run",
-          false,
-          3000
-        );
         return false;
       }
 
-      await wait(120);
-      const radios = [
-        ...document.querySelectorAll(
-          '[role="menuitemradio"], [role="menuitem"], [role="menuitemcheckbox"]'
-        ),
-      ];
-      let target = radios.find((r) =>
-        (r.textContent || "").trim().toLowerCase().includes("think longer")
+      const menuRoot = getOpenMenuRoot() || document;
+      const items = getMenuItems();
+      let target = Array.from(items).find((r) =>
+        safeLower((r.textContent || "").trim()).includes(LABELS.thinkLonger)
       );
-      // If disabled, report and bail without changing other modes
-      if (
-        target &&
-        (target.getAttribute("aria-disabled") === "true" ||
-          target.hasAttribute("data-disabled"))
-      ) {
-        toast("Think longer is unavailable right now", false);
+      if (target && isDisabledMenuItem(target)) {
+        await closeAnyOpenDialog(3);
+        pressEscape(2);
         return false;
       }
       if (!target) {
-        toast("Think longer item not found", false);
+        await closeAnyOpenDialog(2);
+        pressEscape(1);
         return false;
       }
 
-      await clickCenter(target);
-      ["pointerdown", "mousedown", "pointerup", "mouseup", "click"].forEach(
-        (t) => dispatch(target, t)
-      );
-      try {
-        target.click && target.click();
-      } catch (e) {}
+      await clickElementRobust(target);
 
-      await wait(140);
+      await wait(TIMING.checkWaitMs);
 
-      // fallback keyboard activation if necessary
       const radioParent =
-        (target.closest && target.closest('[role="menuitemradio"]')) || target;
+        (target.closest && target.closest(SELECTORS.menuItems)) || target;
       let checked =
         radioParent.getAttribute && radioParent.getAttribute("aria-checked");
       if (!(checked === "true" || checked === "mixed" || checked === "1")) {
@@ -334,62 +384,48 @@
         target.dispatchEvent(
           new KeyboardEvent("keyup", { key: "Enter", bubbles: true })
         );
-        await wait(120);
+        await wait(TIMING.checkWaitMs - 20);
         checked =
           radioParent.getAttribute && radioParent.getAttribute("aria-checked");
       }
 
-      // close menu
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
-      );
-      document.dispatchEvent(
-        new KeyboardEvent("keyup", { key: "Escape", bubbles: true })
-      );
+      await closeAnyOpenDialog(2);
+      pressEscape(1);
 
-      await wait(80);
-      const pillNow = document.querySelector(
-        'button.__composer-pill, button[aria-label*="Think, click to remove"], button[aria-label^="Think,"]'
-      );
+      await wait(TIMING.clickWaitMs + 20);
+      const pillNow = findPill(() => true);
       if (pillNow || checked === "true") {
-        toast("Think enabled", true);
         return true;
       } else {
-        toast("Failed to enable (UI ignored synthetic events)", false, 3000);
         return false;
       }
     } catch (err) {
       console.error("toggleThinkLonger error", err);
-      toast("Error — see console", false, 2000);
       return false;
     }
   }
 
-  // --- Select Web search from + menu (opens More submenu if needed)
   async function runWebSearch() {
     try {
-      // 1) Open + menu (reuse robust sequence)
-      const plus = getPlusButton();
-      if (!plus) {
-        toast("Plus button not found", false);
-        return false;
-      }
-      const opened = await openPlusMenu();
-      if (!opened) {
-        toast("Menu did not open — click + manually then try", false, 3000);
-        return false;
+      let poppers = findVisibleMenuContaining(
+        LABELS.webSearch.source ? "web search" : "web search"
+      );
+      if (!poppers || poppers.length === 0) {
+        const plus = getPlusButton();
+        if (!plus) {
+          return false;
+        }
+        const opened = await openPlusMenu();
+        if (!opened) {
+          return false;
+        }
+        poppers = findVisibleMenuContaining("web search");
       }
 
-      // 2) Try to locate a popper/menu that already contains "Web search"
-      let poppers = findVisibleMenuContaining("web search");
-
-      // 3) If not found, hover/click More to reveal submenu
       if (poppers.length === 0) {
-        // find the opened menu root (if aria-controls exists, prefer that)
         const menuRoot = getOpenMenuRoot();
 
         if (!menuRoot) {
-          toast("Menu not found after opening +", false);
           return false;
         }
 
@@ -403,24 +439,14 @@
           }
         });
         if (!maybeMore) {
-          toast('"More" item not found', false);
           return false;
         }
         const moreEl =
-          (maybeMore.closest &&
-            maybeMore.closest(
-              '[role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], .__menu-item'
-            )) ||
+          (maybeMore.closest && maybeMore.closest(SELECTORS.menuItems)) ||
           maybeMore;
-
-        const r = moreEl.getBoundingClientRect();
-        const cx = Math.round(r.left + r.width / 2);
-        const cy = Math.round(r.top + r.height / 2);
-        const elAtPoint = document.elementFromPoint(cx, cy) || moreEl;
 
         await hoverCenter(moreEl);
 
-        // retry finding popper containing Web search
         poppers = findVisibleMenuContaining("web search");
         if (poppers.length === 0) {
           try {
@@ -432,124 +458,102 @@
               new KeyboardEvent("keyup", { key: "ArrowRight", bubbles: true })
             );
           } catch (e) {}
-          await wait(160);
+          await wait(60);
           poppers = findVisibleMenuContaining("web search");
         }
       }
 
       if (poppers.length === 0) {
-        toast('Could not reveal "Web search" submenu', false);
         return false;
       }
 
-      // 4) Choose the visible popper and find the Web search option
       const popper =
         poppers.find((p) => {
           const r = p.getBoundingClientRect();
           return r.width > 0 && r.height > 0;
         }) || poppers[0];
 
-      const option = [
-        ...popper.querySelectorAll(
-          '[role="menuitemradio"], [role="menuitem"], [role="menuitemcheckbox"]'
-        ),
-      ].find((el) =>
-        (el.textContent || "").trim().toLowerCase().includes("web search")
+      const option = [...popper.querySelectorAll(SELECTORS.menuItems)].find(
+        (el) => {
+          const txt = (el.textContent || "").trim().toLowerCase();
+          return LABELS.webSearch.test(txt);
+        }
       );
 
-      if (
-        option &&
-        (option.getAttribute("aria-disabled") === "true" ||
-          option.hasAttribute("data-disabled"))
-      ) {
-        toast("Web search is unavailable right now", false);
-        return false;
-      }
+      if (option && isDisabledMenuItem(option)) return false;
       if (!option) {
-        toast('"Web search" item not found', false);
         return false;
       }
 
-      // 5) Click the option precisely
-      // center click via helper + direct dispatch to be extra robust
-      await clickCenter(option);
-      const rr = option.getBoundingClientRect();
-      const cx = Math.round(rr.left + rr.width / 2);
-      const cy = Math.round(rr.top + rr.height / 2);
-      ["pointerdown", "mousedown", "pointerup", "mouseup", "click"].forEach(
-        (t) => dispatch(option, t, { clientX: cx, clientY: cy })
-      );
-      try {
-        option.click && option.click();
-      } catch (e) {}
+      await clickElementRobust(option);
 
-      await wait(200);
-      toast('Requested "Web search"', true);
+      await wait(TIMING.clickWaitMs);
       return true;
     } catch (err) {
       console.error("runWebSearch error", err);
-      toast("Error selecting Web search", false);
       return false;
     }
   }
 
-  // --- Toggle Web search: if Search pill exists, click to remove; else enable via + menu
-  async function toggleWebSearch() {
-    try {
-      // 1) If a Search pill exists, click it to remove (toggle off)
-      const pillCandidates = [
-        ...document.querySelectorAll(
-          'button.__composer-pill, button[aria-label^="Search"], button[aria-label*="Search, click to remove"]'
-        ),
-      ];
-      const searchPill = pillCandidates.find((el) => {
-        try {
-          const aria =
-            (el.getAttribute && (el.getAttribute("aria-label") || "")) || "";
-          const label = (el.textContent || "").trim().toLowerCase();
-          if (aria.toLowerCase().includes("search")) return true;
-          if (label.includes("search")) return true;
-          return false;
-        } catch (e) {
-          return false;
-        }
-      });
+  async function runDeepResearch() {
+    const res = await selectTopMenuItemByText("deep research");
+    return !!res.ok;
+  }
 
-      if (searchPill) {
-        await clickCenter(searchPill);
-        const r2 = searchPill.getBoundingClientRect();
-        const cx = Math.round(r2.left + r2.width / 2);
-        const cy = Math.round(r2.top + r2.height / 2);
-        ["pointerdown", "mousedown", "pointerup", "mouseup", "click"].forEach(
-          (t) => dispatch(searchPill, t, { clientX: cx, clientY: cy })
-        );
-        try {
-          searchPill.click && searchPill.click();
-        } catch (e) {}
+  async function runCreateImage() {
+    const res = await selectTopMenuItemByText("create image");
+    return !!res.ok;
+  }
+
+  async function toggleByPillOrMenu(pillMatcher, runEnable) {
+    try {
+      const pill = findPill((aria, label, el) => pillMatcher(aria, label, el));
+      if (pill) {
+        await clickElementRobust(pill);
         await wait(120);
-        toast("Web search removed", true);
         return true;
       }
-
-      // 2) Otherwise, enable Web search via + menu
-      const ok = await runWebSearch();
-      if (ok) {
-        toast("Web search enabled", true);
-      }
-      return ok;
-    } catch (err) {
-      console.error("toggleWebSearch error", err);
-      toast("Error toggling Web search", false);
+      return await runEnable();
+    } catch (e) {
       return false;
     }
   }
 
-  // --- message handling from background/popup
+  async function toggleDeepResearch() {
+    return toggleByPillOrMenu(
+      (aria, label) =>
+        LABELS.pillResearch &&
+        (aria.includes("research") || label.includes("research")),
+      runDeepResearch
+    );
+  }
+
+  async function toggleCreateImage() {
+    return toggleByPillOrMenu(
+      (aria, label) =>
+        LABELS.pillImage && (aria.includes("image") || label.includes("image")),
+      runCreateImage
+    );
+  }
+
+  async function toggleWebSearch() {
+    const wordSearch = LABELS.pillSearchWord;
+    try {
+      return await toggleByPillOrMenu(
+        (aria, label) => wordSearch.test(aria) || wordSearch.test(label),
+        runWebSearch
+      );
+    } catch (err) {
+      console.error("toggleWebSearch error", err);
+      return false;
+    }
+  }
+
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg || !msg.action) return;
     if (msg.action === "toggleThinkLonger") {
       toggleThinkLonger().then((res) => sendResponse({ ok: !!res }));
-      return true; // indicates async response
+      return true;
     } else if (msg.action === "runMode") {
       const mode = msg.mode;
       if (mode === "think_longer") {
@@ -560,24 +564,27 @@
           .then((res) => sendResponse({ ok: !!res }))
           .catch((e) => sendResponse({ ok: false, error: String(e) }));
         return true;
+      } else if (mode === "deep_research") {
+        toggleDeepResearch()
+          .then((ok) => sendResponse({ ok }))
+          .catch((e) => sendResponse({ ok: false, error: String(e) }));
+        return true;
+      } else if (mode === "create_image") {
+        toggleCreateImage()
+          .then((ok) => sendResponse({ ok }))
+          .catch((e) => sendResponse({ ok: false, error: String(e) }));
+        return true;
       } else {
-        // placeholder - not implemented for other modes
-        toast("Mode not implemented yet", false, 1200);
         sendResponse({ ok: false, reason: "not_implemented" });
         return false;
       }
     }
   });
 
-  // expose to console for debugging
-  window.__toggleThinkLonger = toggleThinkLonger;
-  window.__runWebSearch = runWebSearch;
-  window.__toggleWebSearch = toggleWebSearch;
-
-  // --- in-page shortcut handling (configurable by popup)
-  // Two shortcuts captured at capture phase so they work while typing
   let thinkShortcut = null; // {ctrl,alt,shift,meta,key}
   let webShortcut = null; // {ctrl,alt,shift,meta,key}
+  let imageShortcut = null; // create image
+  let researchShortcut = null; // deep research
 
   function normalizeShortcutObj(obj) {
     if (!obj) return null;
@@ -599,37 +606,52 @@
     const k = (e.key || "").toLowerCase();
     return k === shortcut.key;
   }
-  // load stored shortcuts from chrome.storage (or defaults)
+  function isMacPlatform() {
+    try {
+      if (navigator.userAgentData && navigator.userAgentData.platform) {
+        return /mac/i.test(navigator.userAgentData.platform);
+      }
+    } catch (e) {}
+    try {
+      return /mac/i.test(navigator.userAgent || "");
+    } catch (e) {}
+    return false;
+  }
+
   function loadStoredShortcuts() {
-    chrome.storage.sync.get(["thinkShortcut", "webShortcut"], (res) => {
-      const isMac = navigator.platform.toLowerCase().includes("mac");
-      thinkShortcut = normalizeShortcutObj(
-        res.thinkShortcut ||
-          (isMac
-            ? { ctrl: true, alt: false, shift: true, meta: false, key: "t" }
-            : { ctrl: false, alt: true, shift: true, meta: false, key: "t" })
-      );
-      webShortcut = normalizeShortcutObj(
-        res.webShortcut ||
-          (isMac
-            ? { ctrl: true, alt: false, shift: true, meta: false, key: "w" }
-            : { ctrl: false, alt: true, shift: true, meta: false, key: "w" })
-      );
-    });
+    chrome.storage.sync.get(
+      ["thinkShortcut", "webShortcut", "imageShortcut", "researchShortcut"],
+      (res) => {
+        const isMac = isMacPlatform();
+        thinkShortcut = normalizeShortcutObj(
+          res.thinkShortcut ||
+            (isMac
+              ? { ctrl: true, alt: false, shift: true, meta: false, key: "t" }
+              : { ctrl: false, alt: true, shift: true, meta: false, key: "t" })
+        );
+        webShortcut = normalizeShortcutObj(
+          res.webShortcut ||
+            (isMac
+              ? { ctrl: true, alt: false, shift: true, meta: false, key: "w" }
+              : { ctrl: false, alt: true, shift: true, meta: false, key: "w" })
+        );
+        imageShortcut = normalizeShortcutObj(
+          res.imageShortcut ||
+            (isMac
+              ? { ctrl: true, alt: false, shift: true, meta: false, key: "i" }
+              : { ctrl: false, alt: true, shift: true, meta: false, key: "i" })
+        );
+        researchShortcut = normalizeShortcutObj(
+          res.researchShortcut ||
+            (isMac
+              ? { ctrl: true, alt: false, shift: true, meta: false, key: "r" }
+              : { ctrl: false, alt: true, shift: true, meta: false, key: "r" })
+        );
+      }
+    );
   }
   loadStoredShortcuts();
 
-  // listen for changes so popup updates are applied live
-  chrome.storage.onChanged.addListener((changes) => {
-    if (changes.thinkShortcut) {
-      thinkShortcut = normalizeShortcutObj(changes.thinkShortcut.newValue);
-    }
-    if (changes.webShortcut) {
-      webShortcut = normalizeShortcutObj(changes.webShortcut.newValue);
-    }
-  });
-
-  // capture-phase keydown so it works while typing
   window.addEventListener(
     "keydown",
     (e) => {
@@ -648,6 +670,18 @@
           e.preventDefault();
           e.stopPropagation();
           toggleWebSearch();
+          return;
+        }
+        if (shortcutMatchesEvent(imageShortcut, e)) {
+          e.preventDefault();
+          e.stopPropagation();
+          toggleCreateImage();
+          return;
+        }
+        if (shortcutMatchesEvent(researchShortcut, e)) {
+          e.preventDefault();
+          e.stopPropagation();
+          toggleDeepResearch();
           return;
         }
       } catch (err) {}
